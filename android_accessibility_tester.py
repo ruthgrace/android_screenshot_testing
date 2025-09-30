@@ -80,15 +80,15 @@ class AndroidAccessibilityTester:
 
         return output_path
 
-    def assert_screenshot(self, screenshot_path: str, description: str,
-                         model: Optional[str] = None) -> bool:
+    def validate_screenshot(self, screenshot_path: str, description: str,
+                           model: Optional[str] = None) -> bool:
         """
-        Assert that a screenshot matches the given description using Claude LLM.
+        Validate that a screenshot matches the given description using Claude LLM.
 
         Args:
             screenshot_path: Path to the screenshot file
             description: Description of what should be visible in the screenshot
-            model: Claude model to use for assertion. If None, uses the default model from initialization.
+            model: Claude model to use for validation. If None, uses the default model from initialization.
 
         Returns:
             True if screenshot matches description, False otherwise
@@ -192,3 +192,16 @@ If any key elements are missing or the description doesn't match, respond "false
             keycode: Android keycode (e.g., "KEYCODE_BACK", "KEYCODE_HOME")
         """
         self.shell(f"input keyevent {keycode}")
+
+    def open_app(self, package_name: str):
+        """
+        Open an app by package name.
+
+        Args:
+            package_name: Package name of the app (e.g., "com.android.settings")
+        """
+        self.shell(f"monkey -p {package_name} -c android.intent.category.LAUNCHER 1")
+
+    def press_back(self):
+        """Press the Android back button."""
+        self.press_key("KEYCODE_BACK")

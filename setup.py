@@ -8,6 +8,7 @@ setup(
     py_modules=["android_accessibility_tester"],
     install_requires=[
         "anthropic>=0.39.0",
+        "pytest>=7.0.0",
     ],
     python_requires=">=3.7",
     classifiers=[
