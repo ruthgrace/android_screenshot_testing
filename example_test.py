@@ -35,7 +35,7 @@ def tester(app_installed):
 
 
 # Example test - add your actual tests below
-def test_app_open():
+def test_clock_app_open():
     """Test that Clock app opens with the correct tabs."""
     tester = android_accessibility_tester.AndroidAccessibilityTester()
 
@@ -47,10 +47,29 @@ def test_app_open():
     screenshot_path = "screenshots/clock_app_screenshot.png"
     tester.screenshot(screenshot_path)
 
-    # Assert that all three tabs are visible at the bottom
+    # Assert that the tabs are visible at the bottom
     assert tester.validate_screenshot(
         screenshot_path,
-        'The screen shows a clock application with tabs at the bottom. The tabs should include "Alarms", "Timer", and "Stopwatch".'
+        'The screen shows a clock application with tabs at the bottom. The tabs should include "Alarms", "World Clock", "Timers", "Stopwatch", and "Bedtime".'
+    )
+
+
+def test_clock_app_fail():
+    """Test that demonstrates validation failure with error message in pytest output."""
+    tester = android_accessibility_tester.AndroidAccessibilityTester()
+
+    # Open the Clock app
+    tester.open_app("com.google.android.deskclock")
+
+    # Take a screenshot
+    os.makedirs("screenshots", exist_ok=True)
+    screenshot_path = "screenshots/clock_app_screenshot.png"
+    tester.screenshot(screenshot_path)
+
+    # Try to assert something silly that isn't there - this will fail and show the error
+    assert tester.validate_screenshot(
+        screenshot_path,
+        'The screen shows a purple unicorn riding a skateboard in the center of the screen.'
     )
 
 

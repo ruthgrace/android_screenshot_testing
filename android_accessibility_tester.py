@@ -9,8 +9,33 @@ import os
 import subprocess
 import base64
 import json
-from typing import Optional, List, Dict
+from typing import Optional, List
 from anthropic import Anthropic
+
+
+class ValidationResult:
+    """Result of a screenshot validation."""
+
+    def __init__(self, result: bool, error: Optional[str] = None):
+        """
+        Initialize validation result.
+
+        Args:
+            result: Whether the validation passed
+            error: Error message if validation failed, None otherwise
+        """
+        self.result = result
+        self.error = error
+
+    def __bool__(self):
+        """Allow using the result directly in assertions."""
+        return self.result
+
+    def __repr__(self):
+        """String representation of the result."""
+        if self.result:
+            return "ValidationResult(result=True)"
+        return f"ValidationResult(result=False, error={self.error!r})"
 
 
 class AndroidAccessibilityTester:
@@ -82,7 +107,7 @@ class AndroidAccessibilityTester:
         return output_path
 
     def validate_screenshot(self, screenshot_path: str, description: str,
-                           model: Optional[str] = None) -> Dict[str, any]:
+                           model: Optional[str] = None) -> ValidationResult:
         """
         Validate that a screenshot matches the given description using Claude LLM.
 
@@ -92,7 +117,7 @@ class AndroidAccessibilityTester:
             model: Claude model to use for validation. If None, uses the default model from initialization.
 
         Returns:
-            Dictionary with 'result' (bool) and 'error_message' (str or None)
+            ValidationResult object with .result (bool) and .error (str or None)
         """
         if model is None:
             model = self.default_model
@@ -142,7 +167,11 @@ If any key elements are missing or the description doesn't match, set result to 
 
         # Parse response
         response_text = message.content[0].text.strip()
-        return json.loads(response_text)
+        response_data = json.loads(response_text)
+        return ValidationResult(
+            result=response_data["result"],
+            error=response_data.get("error_message")
+        )
 
     def list_devices(self) -> List[str]:
         """
