@@ -8,7 +8,8 @@ and Claude LLM for visual assertions.
 import os
 import subprocess
 import base64
-from typing import Optional, List
+import json
+from typing import Optional, List, Dict
 from anthropic import Anthropic
 
 
@@ -81,7 +82,7 @@ class AndroidAccessibilityTester:
         return output_path
 
     def validate_screenshot(self, screenshot_path: str, description: str,
-                           model: Optional[str] = None) -> bool:
+                           model: Optional[str] = None) -> Dict[str, any]:
         """
         Validate that a screenshot matches the given description using Claude LLM.
 
@@ -91,7 +92,7 @@ class AndroidAccessibilityTester:
             model: Claude model to use for validation. If None, uses the default model from initialization.
 
         Returns:
-            True if screenshot matches description, False otherwise
+            Dictionary with 'result' (bool) and 'error_message' (str or None)
         """
         if model is None:
             model = self.default_model
@@ -105,14 +106,19 @@ class AndroidAccessibilityTester:
 Description of what should be in the screenshot:
 {description}
 
-Based on the screenshot, does it match this description? Respond with ONLY "true" or "false" (lowercase).
-If the key elements described are present and the description is accurate, respond "true".
-If any key elements are missing or the description doesn't match, respond "false"."""
+Based on the screenshot, does it match this description?
+Respond with ONLY a JSON object in this exact format:
+{{"result": true, "error_message": null}}
+or
+{{"result": false, "error_message": "description of what is wrong or missing"}}
+
+If the key elements described are present and the description is accurate, set result to true and error_message to null.
+If any key elements are missing or the description doesn't match, set result to false and provide a clear error_message explaining what is wrong."""
 
         # Call Claude API
         message = self.client.messages.create(
             model=model,
-            max_tokens=10,
+            max_tokens=200,
             messages=[
                 {
                     "role": "user",
@@ -135,8 +141,8 @@ If any key elements are missing or the description doesn't match, respond "false
         )
 
         # Parse response
-        response_text = message.content[0].text.strip().lower()
-        return response_text == "true"
+        response_text = message.content[0].text.strip()
+        return json.loads(response_text)
 
     def list_devices(self) -> List[str]:
         """
@@ -181,7 +187,10 @@ If any key elements are missing or the description doesn't match, respond "false
             text: Text to input (spaces will be replaced with %s)
         """
         # ADB shell input text requires spaces to be encoded
+        # Also escape special shell characters
         escaped_text = text.replace(" ", "%s")
+        escaped_text = escaped_text.replace("(", "\\(")
+        escaped_text = escaped_text.replace(")", "\\)")
         self.shell(f"input text {escaped_text}")
 
     def press_key(self, keycode: str):
