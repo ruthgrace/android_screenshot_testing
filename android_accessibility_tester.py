@@ -9,8 +9,10 @@ import os
 import subprocess
 import base64
 import json
+import time
 from typing import Optional, List
 from anthropic import Anthropic
+from anthropic import APITimeoutError, APIConnectionError, RateLimitError, InternalServerError
 
 
 class ValidationResult:
@@ -140,38 +142,56 @@ or
 If the key elements described are present and the description is accurate, set result to true and error_message to null.
 If any key elements are missing or the description doesn't match, set result to false and provide a clear error_message explaining what is wrong."""
 
-        # Call Claude API
-        message = self.client.messages.create(
-            model=model,
-            max_tokens=200,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
+        # Call Claude API with exponential backoff retry
+        retry_delays = [1, 2, 4, 8]  # Exponential backoff in seconds
+        last_error = None
+
+        for attempt, delay in enumerate(retry_delays + [None]):  # +[None] for one final attempt
+            try:
+                message = self.client.messages.create(
+                    model=model,
+                    max_tokens=200,
+                    messages=[
                         {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": image_data,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": "image/png",
+                                        "data": image_data,
+                                    },
+                                },
+                                {
+                                    "type": "text",
+                                    "text": prompt
+                                }
+                            ],
                         }
                     ],
-                }
-            ],
-        )
+                )
 
-        # Parse response
-        response_text = message.content[0].text.strip()
-        response_data = json.loads(response_text)
-        return ValidationResult(
-            result=response_data["result"],
-            error=response_data.get("error_message")
-        )
+                # Parse response
+                response_text = message.content[0].text.strip()
+                response_data = json.loads(response_text)
+                return ValidationResult(
+                    result=response_data["result"],
+                    error=response_data.get("error_message")
+                )
+
+            except (RateLimitError, InternalServerError, APITimeoutError, APIConnectionError) as e:
+                last_error = e
+                # If this was the last attempt, raise the error
+                if delay is None:
+                    break
+
+                # Log retry attempt
+                print(f"API error on attempt {attempt + 1}: {type(e).__name__}. Retrying in {delay}s...")
+                time.sleep(delay)
+
+        # If we exhausted all retries, raise the last error
+        raise last_error
 
     def list_devices(self) -> List[str]:
         """
