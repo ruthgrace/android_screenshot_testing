@@ -18,3 +18,5 @@ Set your Anthropic API key and run the example:
 export ANTHROPIC_API_KEY=your_api_key_here
 ./venv/bin/pytest example_test.py
 ```
+
+I recommend using droidrun to identify the coordinates of elements you need to click on the screen (though Droidrun cannot be running while testing an app that uses accessibility services since only one app can hold the permissions at a time)
