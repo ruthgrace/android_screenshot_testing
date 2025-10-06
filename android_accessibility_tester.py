@@ -139,7 +139,7 @@ Respond with ONLY a JSON object in this exact format:
 or
 {{"result": false, "error_message": "description of what is wrong or missing"}}
 
-If the key elements described are present and the description is accurate, set result to true and error_message to null.
+If ALL the key elements described are present and the description is completely accurate, set result to true and error_message to null.
 If any key elements are missing or the description doesn't match, set result to false and provide a clear error_message explaining what is wrong."""
 
         # Call Claude API with exponential backoff retry
