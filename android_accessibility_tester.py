@@ -10,7 +10,8 @@ import subprocess
 import base64
 import json
 import time
-from typing import Optional, List
+import xml.etree.ElementTree as ET
+from typing import Optional, List, Tuple
 from anthropic import Anthropic
 from anthropic import APITimeoutError, APIConnectionError, RateLimitError, InternalServerError
 
@@ -38,6 +39,37 @@ class ValidationResult:
         if self.result:
             return "ValidationResult(result=True)"
         return f"ValidationResult(result=False, error={self.error!r})"
+
+
+class ElementCoordinates:
+    """Coordinates of an element found on screen."""
+
+    def __init__(self, x1: int, y1: int, x2: int, y2: int, method: str, confidence: Optional[str] = None):
+        """
+        Initialize element coordinates.
+
+        Args:
+            x1: Top-left x coordinate
+            y1: Top-left y coordinate
+            x2: Bottom-right x coordinate
+            y2: Bottom-right y coordinate
+            method: Method used to find coordinates ("accessibility" or "visual")
+            confidence: Optional confidence/explanation from the method
+        """
+        self.x1 = x1
+        self.y1 = y1
+        self.x2 = x2
+        self.y2 = y2
+        self.method = method
+        self.confidence = confidence
+
+    def center(self) -> Tuple[int, int]:
+        """Get the center point of the element."""
+        return ((self.x1 + self.x2) // 2, (self.y1 + self.y2) // 2)
+
+    def __repr__(self):
+        """String representation of the coordinates."""
+        return f"ElementCoordinates(({self.x1}, {self.y1}), ({self.x2}, {self.y2}), method={self.method!r})"
 
 
 class AndroidAccessibilityTester:
@@ -263,3 +295,155 @@ If any key elements are missing or the description doesn't match, set result to 
     def press_back(self):
         """Press the Android back button."""
         self.press_key("KEYCODE_BACK")
+
+    def _get_ui_hierarchy(self) -> str:
+        """
+        Get the UI hierarchy XML from the device.
+
+        Returns:
+            XML string of the UI hierarchy
+        """
+        # Dump UI hierarchy to device
+        device_path = "/sdcard/ui_hierarchy.xml"
+        self.shell(f"uiautomator dump {device_path}")
+
+        # Pull XML to local machine
+        local_path = "/tmp/ui_hierarchy.xml"
+        cmd = self._get_adb_command() + ["pull", device_path, local_path]
+        subprocess.run(cmd, capture_output=True, check=True)
+
+        # Clean up device file
+        self.shell(f"rm {device_path}")
+
+        # Read XML content
+        with open(local_path, "r") as f:
+            return f.read()
+
+    def _parse_bounds(self, bounds_str: str) -> Tuple[int, int, int, int]:
+        """
+        Parse bounds string from UI hierarchy XML.
+
+        Args:
+            bounds_str: Bounds string in format "[x1,y1][x2,y2]"
+
+        Returns:
+            Tuple of (x1, y1, x2, y2)
+        """
+        # Remove brackets and split
+        bounds_str = bounds_str.replace("][", ",").replace("[", "").replace("]", "")
+        coords = [int(x) for x in bounds_str.split(",")]
+        return tuple(coords)
+
+    def _simplify_node_for_llm(self, node: ET.Element, max_depth: int = 3, current_depth: int = 0) -> dict:
+        """
+        Simplify an XML node into a dict for LLM consumption.
+
+        Args:
+            node: XML element node
+            max_depth: Maximum depth to traverse
+            current_depth: Current traversal depth
+
+        Returns:
+            Simplified dict representation
+        """
+        result = {
+            "class": node.get("class", "").split(".")[-1],  # Just the class name, not full package
+            "text": node.get("text", ""),
+            "content_desc": node.get("content-desc", ""),
+            "resource_id": node.get("resource-id", "").split("/")[-1] if node.get("resource-id") else "",
+            "bounds": node.get("bounds", ""),
+            "clickable": node.get("clickable") == "true",
+            "enabled": node.get("enabled") == "true",
+        }
+
+        # Only include non-empty fields
+        result = {k: v for k, v in result.items() if v or k == "bounds"}
+
+        # Add children if not at max depth
+        if current_depth < max_depth:
+            children = [self._simplify_node_for_llm(child, max_depth, current_depth + 1) for child in node]
+            # Only include children if they have meaningful content
+            children = [c for c in children if c.get("text") or c.get("content_desc") or c.get("clickable")]
+            if children:
+                result["children"] = children
+
+        return result
+
+    def find_element_coordinates_accessibility(self, description: str,
+                                               model: Optional[str] = None) -> Optional[ElementCoordinates]:
+        """
+        Find element coordinates using accessibility hierarchy (Approach 4).
+
+        Args:
+            description: Description of the element to find
+            model: Claude model to use. If None, uses the default model from initialization.
+
+        Returns:
+            ElementCoordinates object if found, None if not found
+        """
+        if model is None:
+            model = self.default_model
+
+        # Get UI hierarchy
+        xml_content = self._get_ui_hierarchy()
+        root = ET.fromstring(xml_content)
+
+        # Simplify the hierarchy for LLM
+        simplified_tree = self._simplify_node_for_llm(root, max_depth=5)
+
+        # Create prompt for Claude
+        prompt = f"""You are analyzing an Android UI accessibility hierarchy to find a specific element.
+
+Element description: {description}
+
+UI Hierarchy (simplified JSON):
+{json.dumps(simplified_tree, indent=2)}
+
+Find the element that best matches the description. Respond with ONLY a JSON object in this exact format:
+{{"found": true, "bounds": "[x1,y1][x2,y2]", "explanation": "why this element matches"}}
+or
+{{"found": false, "explanation": "why no element matches"}}
+
+Look for elements with matching text, content_desc, or context. The bounds field should be copied EXACTLY from the hierarchy."""
+
+        # Call Claude API with exponential backoff retry
+        retry_delays = [1, 2, 4, 8]
+        last_error = None
+
+        for attempt, delay in enumerate(retry_delays + [None]):
+            try:
+                message = self.client.messages.create(
+                    model=model,
+                    max_tokens=300,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                )
+
+                # Parse response
+                response_text = message.content[0].text.strip()
+                response_data = json.loads(response_text)
+
+                if response_data.get("found"):
+                    bounds = response_data["bounds"]
+                    x1, y1, x2, y2 = self._parse_bounds(bounds)
+                    return ElementCoordinates(
+                        x1=x1, y1=y1, x2=x2, y2=y2,
+                        method="accessibility",
+                        confidence=response_data.get("explanation")
+                    )
+                else:
+                    return None
+
+            except (RateLimitError, InternalServerError, APITimeoutError, APIConnectionError) as e:
+                last_error = e
+                if delay is None:
+                    break
+                print(f"API error on attempt {attempt + 1}: {type(e).__name__}. Retrying in {delay}s...")
+                time.sleep(delay)
+
+        # If we exhausted all retries, raise the last error
+        raise last_error
