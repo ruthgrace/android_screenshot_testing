@@ -23,13 +23,16 @@ except ImportError:
 
 
 def timing(f):
-    """Decorator to print execution time of methods."""
+    """Decorator to print execution time of methods (only in verbose mode)."""
     @wraps(f)
     def wrap(*args, **kwargs):
         start = time.time()
         result = f(*args, **kwargs)
         elapsed = time.time() - start
-        print(f'⏱️  {f.__name__} took {elapsed:.3f}s')
+        # Only print timing if pytest is running in verbose mode
+        import sys
+        if '-v' in sys.argv or '--verbose' in sys.argv:
+            print(f'⏱️  {f.__name__} took {elapsed:.3f}s')
         return result
     return wrap
 
