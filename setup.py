@@ -2,13 +2,14 @@ from setuptools import setup, find_packages
 
 setup(
     name="android-accessibility-tester",
-    version="1.0.0",
+    version="2.0.0",
     description="Python library for testing Android apps with accessibility features using ADB and Claude LLM",
     author="Your Name",
     py_modules=["android_accessibility_tester"],
     install_requires=[
         "anthropic>=0.39.0",
         "pytest>=7.0.0",
+        "Pillow>=9.0.0",
     ],
     python_requires=">=3.7",
     classifiers=[

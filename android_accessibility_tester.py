@@ -10,10 +10,15 @@ import subprocess
 import base64
 import json
 import time
+import tempfile
 import xml.etree.ElementTree as ET
 from typing import Optional, List, Tuple
 from anthropic import Anthropic
 from anthropic import APITimeoutError, APIConnectionError, RateLimitError, InternalServerError
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 
 class ValidationResult:
@@ -295,6 +300,233 @@ If any key elements are missing or the description doesn't match, set result to 
     def press_back(self):
         """Press the Android back button."""
         self.press_key("KEYCODE_BACK")
+
+    def _get_pixel_color(self, screenshot_path: str, x: int, y: int) -> Tuple[int, int, int]:
+        """
+        Get the RGB color of a pixel at the given coordinates.
+
+        Args:
+            screenshot_path: Path to the screenshot file
+            x: X coordinate of the pixel
+            y: Y coordinate of the pixel
+
+        Returns:
+            Tuple of (R, G, B) values
+
+        Raises:
+            RuntimeError: If PIL is not installed
+            ValueError: If coordinates are out of bounds
+        """
+        if Image is None:
+            raise RuntimeError("PIL/Pillow is required for pixel operations. Install with: pip install Pillow")
+
+        with Image.open(screenshot_path) as img:
+            # Verify coordinates are within bounds
+            width, height = img.size
+            if x < 0 or x >= width or y < 0 or y >= height:
+                raise ValueError(f"Coordinates ({x}, {y}) out of bounds. Image size: {width}x{height}")
+
+            # Get pixel color
+            rgb_img = img.convert('RGB')
+            return rgb_img.getpixel((x, y))
+
+    def wait_for_pixel_change(self, x: int, y: int, timeout: float = 10.0,
+                              poll_interval: float = 0.5) -> dict:
+        """
+        Wait for a pixel at the given coordinates to change color.
+
+        This is useful for detecting when UI elements appear/disappear or change state
+        without requiring accessibility services or UI hierarchy parsing.
+
+        Args:
+            x: X coordinate of the pixel to monitor
+            y: Y coordinate of the pixel to monitor
+            timeout: Maximum time to wait in seconds (default: 10.0)
+            poll_interval: Time between checks in seconds (default: 0.5)
+
+        Returns:
+            Dictionary with:
+                - 'changed': bool - Whether the pixel changed
+                - 'initial_color': str - Hex color code of initial pixel (e.g., '#FF0000')
+                - 'final_color': str - Hex color code of final pixel if changed
+                - 'error': str - Error message if timeout occurred
+
+        Example:
+            # Wait for a pixel to change (e.g., loading indicator)
+            result = tester.wait_for_pixel_change(500, 300, timeout=5.0)
+            if result['changed']:
+                print(f"Color changed from {result['initial_color']} to {result['final_color']}")
+            else:
+                print(f"Timeout: {result['error']}")
+        """
+        if Image is None:
+            raise RuntimeError("PIL/Pillow is required for pixel operations. Install with: pip install Pillow")
+
+        # Take initial screenshot
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            initial_screenshot = tmp.name
+
+        try:
+            self.screenshot(initial_screenshot)
+            initial_color = self._get_pixel_color(initial_screenshot, x, y)
+            initial_hex = f"#{initial_color[0]:02x}{initial_color[1]:02x}{initial_color[2]:02x}"
+
+            start_time = time.time()
+
+            while time.time() - start_time < timeout:
+                time.sleep(poll_interval)
+
+                # Take new screenshot
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                    current_screenshot = tmp.name
+
+                try:
+                    self.screenshot(current_screenshot)
+                    current_color = self._get_pixel_color(current_screenshot, x, y)
+
+                    # Check if color changed
+                    if current_color != initial_color:
+                        final_hex = f"#{current_color[0]:02x}{current_color[1]:02x}{current_color[2]:02x}"
+                        return {
+                            'changed': True,
+                            'initial_color': initial_hex,
+                            'final_color': final_hex,
+                            'error': None
+                        }
+                finally:
+                    # Clean up current screenshot
+                    if os.path.exists(current_screenshot):
+                        os.unlink(current_screenshot)
+
+            # Timeout occurred
+            return {
+                'changed': False,
+                'initial_color': initial_hex,
+                'final_color': None,
+                'error': f'Timeout after {timeout}s - pixel at ({x}, {y}) remained {initial_hex}'
+            }
+
+        finally:
+            # Clean up initial screenshot
+            if os.path.exists(initial_screenshot):
+                os.unlink(initial_screenshot)
+
+    def wait_for_pixel_color(self, x: int, y: int, target_color: str,
+                              timeout: float = 10.0, poll_interval: float = 0.5) -> dict:
+        """
+        Wait for a pixel at the given coordinates to become a specific color.
+
+        This is useful for waiting for UI elements to reach a specific state
+        (e.g., button turning green when enabled).
+
+        Args:
+            x: X coordinate of the pixel to monitor
+            y: Y coordinate of the pixel to monitor
+            target_color: Target color as hex string (e.g., '#FF0000') or RGB tuple (255, 0, 0)
+            timeout: Maximum time to wait in seconds (default: 10.0)
+            poll_interval: Time between checks in seconds (default: 0.5)
+
+        Returns:
+            Dictionary with:
+                - 'matched': bool - Whether the pixel reached the target color
+                - 'initial_color': str - Hex color code of initial pixel
+                - 'final_color': str - Hex color code of final pixel
+                - 'target_color': str - Hex color code of target color
+                - 'error': str - Error message if timeout occurred
+
+        Example:
+            # Wait for a button to turn green
+            result = tester.wait_for_pixel_color(500, 300, '#00FF00', timeout=5.0)
+            if result['matched']:
+                print(f"Pixel reached target color!")
+            else:
+                print(f"Timeout: {result['error']}")
+        """
+        if Image is None:
+            raise RuntimeError("PIL/Pillow is required for pixel operations. Install with: pip install Pillow")
+
+        # Convert target_color to RGB tuple
+        if isinstance(target_color, str):
+            # Remove '#' if present
+            target_color = target_color.lstrip('#')
+            # Convert hex to RGB
+            target_rgb = tuple(int(target_color[i:i+2], 16) for i in (0, 2, 4))
+        else:
+            target_rgb = tuple(target_color)
+
+        target_hex = f"#{target_rgb[0]:02x}{target_rgb[1]:02x}{target_rgb[2]:02x}"
+
+        # Take initial screenshot
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            initial_screenshot = tmp.name
+
+        try:
+            self.screenshot(initial_screenshot)
+            initial_color = self._get_pixel_color(initial_screenshot, x, y)
+            initial_hex = f"#{initial_color[0]:02x}{initial_color[1]:02x}{initial_color[2]:02x}"
+
+            # Check if already at target color
+            if initial_color == target_rgb:
+                return {
+                    'matched': True,
+                    'initial_color': initial_hex,
+                    'final_color': initial_hex,
+                    'target_color': target_hex,
+                    'error': None
+                }
+
+            start_time = time.time()
+
+            while time.time() - start_time < timeout:
+                time.sleep(poll_interval)
+
+                # Take new screenshot
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                    current_screenshot = tmp.name
+
+                try:
+                    self.screenshot(current_screenshot)
+                    current_color = self._get_pixel_color(current_screenshot, x, y)
+
+                    # Check if color matches target
+                    if current_color == target_rgb:
+                        final_hex = f"#{current_color[0]:02x}{current_color[1]:02x}{current_color[2]:02x}"
+                        return {
+                            'matched': True,
+                            'initial_color': initial_hex,
+                            'final_color': final_hex,
+                            'target_color': target_hex,
+                            'error': None
+                        }
+                finally:
+                    # Clean up current screenshot
+                    if os.path.exists(current_screenshot):
+                        os.unlink(current_screenshot)
+
+            # Timeout occurred - get final color
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                final_screenshot = tmp.name
+
+            try:
+                self.screenshot(final_screenshot)
+                final_color = self._get_pixel_color(final_screenshot, x, y)
+                final_hex = f"#{final_color[0]:02x}{final_color[1]:02x}{final_color[2]:02x}"
+            finally:
+                if os.path.exists(final_screenshot):
+                    os.unlink(final_screenshot)
+
+            return {
+                'matched': False,
+                'initial_color': initial_hex,
+                'final_color': final_hex,
+                'target_color': target_hex,
+                'error': f'Timeout after {timeout}s - pixel at ({x}, {y}) is {final_hex}, expected {target_hex}'
+            }
+
+        finally:
+            # Clean up initial screenshot
+            if os.path.exists(initial_screenshot):
+                os.unlink(initial_screenshot)
 
     def _get_ui_hierarchy(self) -> str:
         """

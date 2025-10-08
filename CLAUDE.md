@@ -37,9 +37,49 @@ tester = AndroidAccessibilityTester(
 - `swipe(x1, y1, x2, y2, duration_ms=300)` - Swipe gesture (`android_accessibility_tester.py:250`)
 - `input_text(text)` - Type text into focused field (`android_accessibility_tester.py:263`)
 - `press_key(keycode)` - Press Android keycode (`android_accessibility_tester.py:277`)
-- `press_back()` - Press back button (`android_accessibility_tester.py:295`)
+- `press_back()` - Press back button (`android_accessibility_tester.py:300`)
 - `open_app(package_name)` - Launch app by package name (`android_accessibility_tester.py:286`)
 - `list_devices()` - List connected Android devices (`android_accessibility_tester.py:228`)
+
+### Pixel Change Detection (New in v2.0)
+
+**wait_for_pixel_change(x, y, timeout=10.0, poll_interval=0.5)**
+
+Wait for a pixel at given coordinates to change color. This is a fast, lightweight method for detecting UI changes without requiring accessibility services or UI hierarchy parsing (`android_accessibility_tester.py:333`).
+
+Arguments:
+- `x` - X coordinate of pixel to monitor
+- `y` - Y coordinate of pixel to monitor
+- `timeout` - Maximum wait time in seconds (default: 10.0)
+- `poll_interval` - Time between checks in seconds (default: 0.5)
+
+Returns dictionary with:
+- `'changed'` - Boolean, whether pixel changed
+- `'initial_color'` - Hex color code of initial pixel (e.g., '#FF0000')
+- `'final_color'` - Hex color code after change (if changed)
+- `'error'` - Error message if timeout occurred
+
+Example:
+```python
+# Wait for a loading indicator to appear/disappear
+result = tester.wait_for_pixel_change(500, 300, timeout=5.0)
+if result['changed']:
+    print(f"Color changed from {result['initial_color']} to {result['final_color']}")
+else:
+    print(f"Timeout: {result['error']}")
+
+# Use in assertions
+result = tester.wait_for_pixel_change(100, 200, timeout=3.0)
+assert result['changed'], result['error']
+```
+
+**Use cases:**
+- Detect loading spinners appearing/disappearing
+- Wait for buttons to enable/disable (color change)
+- Detect animations starting/stopping
+- Monitor progress indicators
+
+**Note:** Requires Pillow library (automatically installed with v2.0+)
 
 ### Visual Validation
 
