@@ -13,12 +13,25 @@ import time
 import tempfile
 import xml.etree.ElementTree as ET
 from typing import Optional, List, Tuple
+from functools import wraps
 from anthropic import Anthropic
 from anthropic import APITimeoutError, APIConnectionError, RateLimitError, InternalServerError
 try:
     from PIL import Image
 except ImportError:
     Image = None
+
+
+def timing(f):
+    """Decorator to print execution time of methods."""
+    @wraps(f)
+    def wrap(*args, **kwargs):
+        start = time.time()
+        result = f(*args, **kwargs)
+        elapsed = time.time() - start
+        print(f'⏱️  {f.__name__} took {elapsed:.3f}s')
+        return result
+    return wrap
 
 
 class ValidationResult:
@@ -122,6 +135,7 @@ class AndroidAccessibilityTester:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return result.stdout.strip()
 
+    @timing
     def screenshot(self, output_path: str) -> str:
         """
         Capture a screenshot from the Android device.
@@ -145,6 +159,7 @@ class AndroidAccessibilityTester:
 
         return output_path
 
+    @timing
     def validate_screenshot(self, screenshot_path: str, description: str,
                            model: Optional[str] = None) -> ValidationResult:
         """
@@ -242,6 +257,7 @@ If any key elements are missing or the description doesn't match, set result to 
         devices = [line.split()[0] for line in lines if line.strip() and "device" in line]
         return devices
 
+    @timing
     def tap(self, x: int, y: int):
         """
         Simulate a tap at the given coordinates.
@@ -265,6 +281,7 @@ If any key elements are missing or the description doesn't match, set result to 
         """
         self.shell(f"input swipe {x1} {y1} {x2} {y2} {duration_ms}")
 
+    @timing
     def input_text(self, text: str):
         """
         Input text into the focused field.
@@ -411,6 +428,7 @@ If any key elements are missing or the description doesn't match, set result to 
             if os.path.exists(initial_screenshot):
                 os.unlink(initial_screenshot)
 
+    @timing
     def wait_for_pixel_color(self, x: int, y: int, target_color: str,
                               timeout: float = 10.0, poll_interval: float = 0.5) -> dict:
         """
