@@ -1,7 +1,7 @@
 # version 2.0.0
 
 * Add methods for waiting until a pixel changes color, or waiting until a pixel changes to a specific color
-* [todo] ADB longpress command and ADB swipe command
+* ADB longpress command and ADB swipe command
 
 # version 1.0.0
 * adjust prompt so screenshot validation only passes when it's an exact match

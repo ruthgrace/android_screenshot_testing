@@ -271,7 +271,18 @@ If any key elements are missing or the description doesn't match, set result to 
         """
         self.shell(f"input tap {x} {y}")
 
-    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300):
+    def long_press(self, x: int, y: int, duration_ms: int = 1000):
+        """
+        Simulate a long press at the given coordinates.
+
+        Args:
+            x: X coordinate
+            y: Y coordinate
+            duration_ms: Duration of long press in milliseconds (default: 1000ms = 1 second)
+        """
+        self.shell(f"input swipe {x} {y} {x} {y} {duration_ms}")
+
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 1000):
         """
         Simulate a swipe gesture.
 
@@ -280,7 +291,7 @@ If any key elements are missing or the description doesn't match, set result to 
             y1: Start Y coordinate
             x2: End X coordinate
             y2: End Y coordinate
-            duration_ms: Duration of swipe in milliseconds
+            duration_ms: Duration of swipe in milliseconds (default: 1000ms = 1 second)
         """
         self.shell(f"input swipe {x1} {y1} {x2} {y2} {duration_ms}")
 
