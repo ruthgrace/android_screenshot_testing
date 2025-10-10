@@ -556,6 +556,17 @@ If any key elements are missing or the description doesn't match, set result to 
                 if os.path.exists(final_screenshot):
                     os.unlink(final_screenshot)
 
+            # Check if the final color matches (race condition: might have changed after timeout)
+            if final_color == target_rgb:
+                print(f"⏱️  ✅ Pixel color matched after {elapsed:.3f}s ({initial_hex} -> {final_hex}) [detected on timeout]")
+                return {
+                    'matched': True,
+                    'initial_color': initial_hex,
+                    'final_color': final_hex,
+                    'target_color': target_hex,
+                    'error': None
+                }
+
             print(f"⏱️  ❌ Timeout after {elapsed:.3f}s - pixel at ({x}, {y}) is {final_hex}, expected {target_hex}")
             return {
                 'matched': False,
