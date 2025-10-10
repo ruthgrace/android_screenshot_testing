@@ -499,6 +499,9 @@ If any key elements are missing or the description doesn't match, set result to 
 
             # Check if already at target color
             if initial_color == target_rgb:
+                import sys
+                if '-v' in sys.argv or '--verbose' in sys.argv:
+                    print(f"⏱️  Pixel at ({x}, {y}) already at target color {target_hex}")
                 return {
                     'matched': True,
                     'initial_color': initial_hex,
@@ -507,6 +510,9 @@ If any key elements are missing or the description doesn't match, set result to 
                     'error': None
                 }
 
+            import sys
+            if '-v' in sys.argv or '--verbose' in sys.argv:
+                print(f"⏱️  Waiting for pixel at ({x}, {y}) to change from {initial_hex} to {target_hex}...")
             start_time = time.time()
 
             while time.time() - start_time < timeout:
@@ -522,7 +528,9 @@ If any key elements are missing or the description doesn't match, set result to 
 
                     # Check if color matches target
                     if current_color == target_rgb:
+                        elapsed = time.time() - start_time
                         final_hex = f"#{current_color[0]:02x}{current_color[1]:02x}{current_color[2]:02x}"
+                        print(f"⏱️  ✅ Pixel color matched after {elapsed:.3f}s ({initial_hex} -> {final_hex})")
                         return {
                             'matched': True,
                             'initial_color': initial_hex,
@@ -536,6 +544,7 @@ If any key elements are missing or the description doesn't match, set result to 
                         os.unlink(current_screenshot)
 
             # Timeout occurred - get final color
+            elapsed = time.time() - start_time
             with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
                 final_screenshot = tmp.name
 
@@ -547,6 +556,7 @@ If any key elements are missing or the description doesn't match, set result to 
                 if os.path.exists(final_screenshot):
                     os.unlink(final_screenshot)
 
+            print(f"⏱️  ❌ Timeout after {elapsed:.3f}s - pixel at ({x}, {y}) is {final_hex}, expected {target_hex}")
             return {
                 'matched': False,
                 'initial_color': initial_hex,
