@@ -229,6 +229,18 @@ If any key elements are missing or the description doesn't match, set result to 
 
                 # Parse response
                 response_text = message.content[0].text.strip()
+
+                # Strip markdown code blocks if present
+                if response_text.startswith("```"):
+                    # Remove opening ```json or ```
+                    lines = response_text.split("\n")
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    # Remove closing ```
+                    if lines and lines[-1].strip() == "```":
+                        lines = lines[:-1]
+                    response_text = "\n".join(lines).strip()
+
                 response_data = json.loads(response_text)
                 return ValidationResult(
                     result=response_data["result"],
@@ -710,6 +722,18 @@ Look for elements with matching text, content_desc, or context. The bounds field
 
                 # Parse response
                 response_text = message.content[0].text.strip()
+
+                # Strip markdown code blocks if present
+                if response_text.startswith("```"):
+                    # Remove opening ```json or ```
+                    lines = response_text.split("\n")
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    # Remove closing ```
+                    if lines and lines[-1].strip() == "```":
+                        lines = lines[:-1]
+                    response_text = "\n".join(lines).strip()
+
                 response_data = json.loads(response_text)
 
                 if response_data.get("found"):
