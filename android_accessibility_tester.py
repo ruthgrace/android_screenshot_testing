@@ -455,50 +455,65 @@ If any key elements are missing or the description doesn't match, set result to 
                 os.unlink(initial_screenshot)
 
     @timing
-    def wait_for_pixel_color(self, x: int, y: int, target_color: str,
+    def wait_for_pixel_color(self, x: int, y: int, target_color,
                               timeout: float = 10.0, poll_interval: float = 0.5) -> dict:
         """
-        Wait for a pixel at the given coordinates to become a specific color.
+        Wait for a pixel at the given coordinates to become a specific color or one of multiple acceptable colors.
 
         This is useful for waiting for UI elements to reach a specific state
-        (e.g., button turning green when enabled).
+        (e.g., button turning green when enabled, or overlay appearing in light/dark mode).
 
         Args:
             x: X coordinate of the pixel to monitor
             y: Y coordinate of the pixel to monitor
-            target_color: Target color as hex string (e.g., '#FF0000') or RGB tuple (255, 0, 0)
+            target_color: Target color as:
+                - Single hex string (e.g., '#FF0000')
+                - Single RGB tuple (255, 0, 0)
+                - List of hex strings (e.g., ['#FF0000', '#00FF00'])
+                - List of RGB tuples (e.g., [(255, 0, 0), (0, 255, 0)])
             timeout: Maximum time to wait in seconds (default: 10.0)
             poll_interval: Time between checks in seconds (default: 0.5)
 
         Returns:
             Dictionary with:
-                - 'matched': bool - Whether the pixel reached the target color
+                - 'matched': bool - Whether the pixel reached one of the target colors
                 - 'initial_color': str - Hex color code of initial pixel
                 - 'final_color': str - Hex color code of final pixel
-                - 'target_color': str - Hex color code of target color
+                - 'target_color': str or list - Hex color code(s) of target color(s)
+                - 'matched_color': str - Which target color was matched (if matched)
                 - 'error': str - Error message if timeout occurred
 
         Example:
             # Wait for a button to turn green
             result = tester.wait_for_pixel_color(500, 300, '#00FF00', timeout=5.0)
+
+            # Wait for overlay to appear in either light or dark mode
+            result = tester.wait_for_pixel_color(300, 1380, ['#fffad0', '#d2cea4'], timeout=30.0)
             if result['matched']:
-                print(f"Pixel reached target color!")
-            else:
-                print(f"Timeout: {result['error']}")
+                print(f"Pixel matched {result['matched_color']}")
         """
         if Image is None:
             raise RuntimeError("PIL/Pillow is required for pixel operations. Install with: pip install Pillow")
 
-        # Convert target_color to RGB tuple
-        if isinstance(target_color, str):
-            # Remove '#' if present
-            target_color = target_color.lstrip('#')
-            # Convert hex to RGB
-            target_rgb = tuple(int(target_color[i:i+2], 16) for i in (0, 2, 4))
-        else:
-            target_rgb = tuple(target_color)
+        # Convert target_color(s) to list of RGB tuples
+        def to_rgb(color):
+            if isinstance(color, str):
+                # Remove '#' if present
+                color = color.lstrip('#')
+                # Convert hex to RGB
+                return tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+            else:
+                return tuple(color)
 
-        target_hex = f"#{target_rgb[0]:02x}{target_rgb[1]:02x}{target_rgb[2]:02x}"
+        # Handle both single color and list of colors
+        if isinstance(target_color, list):
+            target_rgb_list = [to_rgb(c) for c in target_color]
+            target_hex_list = [f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}" for rgb in target_rgb_list]
+            target_hex = target_hex_list  # For return value
+        else:
+            target_rgb_list = [to_rgb(target_color)]
+            target_hex_list = [f"#{target_rgb_list[0][0]:02x}{target_rgb_list[0][1]:02x}{target_rgb_list[0][2]:02x}"]
+            target_hex = target_hex_list[0]  # For return value (single string for backward compatibility)
 
         # Take initial screenshot
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
@@ -509,22 +524,26 @@ If any key elements are missing or the description doesn't match, set result to 
             initial_color = self._get_pixel_color(initial_screenshot, x, y)
             initial_hex = f"#{initial_color[0]:02x}{initial_color[1]:02x}{initial_color[2]:02x}"
 
-            # Check if already at target color
-            if initial_color == target_rgb:
-                import sys
-                if '-v' in sys.argv or '--verbose' in sys.argv:
-                    print(f"⏱️  Pixel at ({x}, {y}) already at target color {target_hex}")
-                return {
-                    'matched': True,
-                    'initial_color': initial_hex,
-                    'final_color': initial_hex,
-                    'target_color': target_hex,
-                    'error': None
-                }
+            # Check if already at one of the target colors
+            for i, target_rgb in enumerate(target_rgb_list):
+                if initial_color == target_rgb:
+                    matched_hex = target_hex_list[i]
+                    import sys
+                    if '-v' in sys.argv or '--verbose' in sys.argv:
+                        print(f"⏱️  Pixel at ({x}, {y}) already at target color {matched_hex}")
+                    return {
+                        'matched': True,
+                        'initial_color': initial_hex,
+                        'final_color': initial_hex,
+                        'target_color': target_hex,
+                        'matched_color': matched_hex,
+                        'error': None
+                    }
 
             import sys
             if '-v' in sys.argv or '--verbose' in sys.argv:
-                print(f"⏱️  Waiting for pixel at ({x}, {y}) to change from {initial_hex} to {target_hex}...")
+                target_display = target_hex if isinstance(target_hex, str) else f"one of {target_hex}"
+                print(f"⏱️  Waiting for pixel at ({x}, {y}) to change from {initial_hex} to {target_display}...")
             start_time = time.time()
 
             while time.time() - start_time < timeout:
@@ -538,18 +557,21 @@ If any key elements are missing or the description doesn't match, set result to 
                     self.screenshot(current_screenshot)
                     current_color = self._get_pixel_color(current_screenshot, x, y)
 
-                    # Check if color matches target
-                    if current_color == target_rgb:
-                        elapsed = time.time() - start_time
-                        final_hex = f"#{current_color[0]:02x}{current_color[1]:02x}{current_color[2]:02x}"
-                        print(f"⏱️  ✅ Pixel color matched after {elapsed:.3f}s ({initial_hex} -> {final_hex})")
-                        return {
-                            'matched': True,
-                            'initial_color': initial_hex,
-                            'final_color': final_hex,
-                            'target_color': target_hex,
-                            'error': None
-                        }
+                    # Check if color matches any of the target colors
+                    for i, target_rgb in enumerate(target_rgb_list):
+                        if current_color == target_rgb:
+                            elapsed = time.time() - start_time
+                            final_hex = f"#{current_color[0]:02x}{current_color[1]:02x}{current_color[2]:02x}"
+                            matched_hex = target_hex_list[i]
+                            print(f"⏱️  ✅ Pixel color matched after {elapsed:.3f}s ({initial_hex} -> {final_hex})")
+                            return {
+                                'matched': True,
+                                'initial_color': initial_hex,
+                                'final_color': final_hex,
+                                'target_color': target_hex,
+                                'matched_color': matched_hex,
+                                'error': None
+                            }
                 finally:
                     # Clean up current screenshot
                     if os.path.exists(current_screenshot):
@@ -568,24 +590,29 @@ If any key elements are missing or the description doesn't match, set result to 
                 if os.path.exists(final_screenshot):
                     os.unlink(final_screenshot)
 
-            # Check if the final color matches (race condition: might have changed after timeout)
-            if final_color == target_rgb:
-                print(f"⏱️  ✅ Pixel color matched after {elapsed:.3f}s ({initial_hex} -> {final_hex}) [detected on timeout]")
-                return {
-                    'matched': True,
-                    'initial_color': initial_hex,
-                    'final_color': final_hex,
-                    'target_color': target_hex,
-                    'error': None
-                }
+            # Check if the final color matches any target (race condition: might have changed after timeout)
+            for i, target_rgb in enumerate(target_rgb_list):
+                if final_color == target_rgb:
+                    matched_hex = target_hex_list[i]
+                    print(f"⏱️  ✅ Pixel color matched after {elapsed:.3f}s ({initial_hex} -> {final_hex}) [detected on timeout]")
+                    return {
+                        'matched': True,
+                        'initial_color': initial_hex,
+                        'final_color': final_hex,
+                        'target_color': target_hex,
+                        'matched_color': matched_hex,
+                        'error': None
+                    }
 
-            print(f"⏱️  ❌ Timeout after {elapsed:.3f}s - pixel at ({x}, {y}) is {final_hex}, expected {target_hex}")
+            target_display = target_hex if isinstance(target_hex, str) else ', '.join(target_hex)
+            print(f"⏱️  ❌ Timeout after {elapsed:.3f}s - pixel at ({x}, {y}) is {final_hex}, expected {target_display}")
             return {
                 'matched': False,
                 'initial_color': initial_hex,
                 'final_color': final_hex,
                 'target_color': target_hex,
-                'error': f'Timeout after {timeout}s - pixel at ({x}, {y}) is {final_hex}, expected {target_hex}'
+                'matched_color': None,
+                'error': f'Timeout after {timeout}s - pixel at ({x}, {y}) is {final_hex}, expected {target_display}'
             }
 
         finally:
