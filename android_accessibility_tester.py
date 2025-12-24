@@ -9,6 +9,7 @@ import os
 import subprocess
 import base64
 import json
+import re
 import time
 import tempfile
 import xml.etree.ElementTree as ET
@@ -241,7 +242,15 @@ If any key elements are missing or the description doesn't match, set result to 
                         lines = lines[:-1]
                     response_text = "\n".join(lines).strip()
 
-                response_data = json.loads(response_text)
+                try:
+                    response_data = json.loads(response_text)
+                except json.JSONDecodeError:
+                    # LLM sometimes adds explanatory text before/after JSON - extract it
+                    json_match = re.search(r'\{[^{}]*"result"\s*:\s*(true|false)[^{}]*\}', response_text)
+                    if json_match:
+                        response_data = json.loads(json_match.group())
+                    else:
+                        raise ValueError(f"Could not extract JSON from response: {response_text[:200]}...")
                 return ValidationResult(
                     result=response_data["result"],
                     error=response_data.get("error_message")
